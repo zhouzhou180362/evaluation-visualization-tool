@@ -113,7 +113,16 @@ def run_script_with_temp_cwd(script_path: str, input_xlsx_path: str, run_dir: st
     if os.path.abspath(local_input) != os.path.abspath(input_xlsx_path):
         shutil.copy2(input_xlsx_path, local_input)
 
+    # 复制依赖文件到脚本目录
+    script_dir = os.path.dirname(script_path)
+    deps_file = os.path.join(script_dir, "deps.py")
+    if os.path.exists(deps_file):
+        shutil.copy2(deps_file, run_dir)
+
     env = os.environ.copy()
+    # 设置Python路径，确保能找到依赖包
+    env["PYTHONPATH"] = f"{WORKSPACE_ROOT}:{run_dir}"
+    
     python_exec = env.get("PYTHON_EXECUTABLE", None) or "python3"
     completed = subprocess.run(
         [python_exec, script_path],
@@ -122,6 +131,7 @@ def run_script_with_temp_cwd(script_path: str, input_xlsx_path: str, run_dir: st
         stderr=subprocess.STDOUT,
         check=False,
         text=True,
+        env=env,
     )
     stdout = completed.stdout
 
