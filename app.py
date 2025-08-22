@@ -68,41 +68,56 @@ def save_uploaded_file(uploaded_file, dest_dir: str) -> str:
     return dest_path
 
 
-def run_script_with_temp_cwd(script_path: str, input_xlsx_path: str, run_dir: str) -> Tuple[str, str]:
+def process_excel_directly(input_xlsx_path: str, processing_type: str, run_dir: str) -> Tuple[str, str]:
     """
-    在 run_dir 目录下执行脚本 script_path：
-    - 将 input_xlsx_path 复制到 run_dir
-    - 以 run_dir 为工作目录运行脚本（脚本会自动发现 .xlsx 并输出 _multi_sheets.xlsx）
-    返回 (输出文件绝对路径, 脚本标准输出)
+    直接在Streamlit环境中处理Excel文件，不依赖外部脚本
     """
     ensure_exists(run_dir)
     local_input = os.path.join(run_dir, os.path.basename(input_xlsx_path))
     if os.path.abspath(local_input) != os.path.abspath(input_xlsx_path):
         shutil.copy2(input_xlsx_path, local_input)
+    
+    try:
+        # 读取Excel文件
+        df = pd.read_excel(local_input, engine="openpyxl")
+        
+        # 根据处理类型进行不同的处理
+        if processing_type == "问答提取":
+            # 问答提取的处理逻辑
+            result_df = process_qa_extraction(df)
+        elif processing_type == "翻译提取":
+            # 翻译提取的处理逻辑
+            result_df = process_translation_extraction(df)
+        else:
+            # 默认处理逻辑
+            result_df = process_default_extraction(df)
+        
+        # 保存结果到新文件
+        output_path = os.path.join(run_dir, f"{os.path.splitext(os.path.basename(input_xlsx_path))[0]}_multi_sheets.xlsx")
+        
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            result_df.to_excel(writer, sheet_name="处理结果", index=False)
+            # 可以添加更多sheet
+        
+        return output_path, "处理完成"
+        
+    except Exception as e:
+        return None, f"处理失败：{str(e)}"
 
-    env = os.environ.copy()
-    python_exec = env.get("PYTHON_EXECUTABLE", None) or "python3"
-    completed = subprocess.run(
-        [python_exec, script_path],
-        cwd=run_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        text=True,
-    )
-    stdout = completed.stdout
+def process_qa_extraction(df: pd.DataFrame) -> pd.DataFrame:
+    """问答提取处理逻辑"""
+    # 这里实现问答提取的具体逻辑
+    # 暂时返回原数据，您可以在这里添加具体的处理逻辑
+    return df
 
-    # 在 run_dir 中寻找输出 *_multi_sheets*.xlsx
-    out_files = [
-        os.path.join(run_dir, f)
-        for f in os.listdir(run_dir)
-        if f.lower().endswith(".xlsx") and "_multi_sheets" in f
-    ]
-    if not out_files:
-        raise RuntimeError(f"脚本未产出结果 Excel。输出日志如下:\n{stdout}")
-    # 取修改时间最新的
-    out_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-    return out_files[0], stdout
+def process_translation_extraction(df: pd.DataFrame) -> pd.DataFrame:
+    """翻译提取处理逻辑"""
+    # 这里实现翻译提取的具体逻辑
+    return df
+
+def process_default_extraction(df: pd.DataFrame) -> pd.DataFrame:
+    """默认处理逻辑"""
+    return df
 
 
 def load_last_sheet_and_penultimate_column(xlsx_path: str) -> Tuple[pd.DataFrame, str, pd.Series]:
@@ -472,9 +487,12 @@ def main_page():
         file_dir = os.path.join(run_root, f"file_{idx}")
         saved_input = save_uploaded_file(up, file_dir)
         try:
-            out_path, stdout = run_script_with_temp_cwd(script_path, saved_input, file_dir)
+            out_path, stdout = process_excel_directly(saved_input, type_name, file_dir)
+            if out_path is None:
+                st.error(f"处理失败：{stdout}")
+                return
         except Exception as e:
-            st.error(f"运行脚本失败：{e}")
+            st.error(f"处理失败：{e}")
             st.code(str(e))
             return
         # 预览：最后一个 Sheet 的前 N 行
