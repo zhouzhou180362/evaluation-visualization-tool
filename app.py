@@ -5,11 +5,44 @@ import uuid
 import subprocess
 from typing import Dict, Tuple, Optional, List
 
-import pandas as pd
-import numpy as np
+# 依赖检查和备用方案
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    st.error("⚠️ pandas未安装，某些功能可能受限")
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    st.error("⚠️ numpy未安装，某些功能可能受限")
+
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+    st.error("⚠️ openpyxl未安装，Excel文件处理功能受限")
+
+# 图表库选择
+CHART_LIBRARY = None
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    CHART_LIBRARY = "plotly"
+except ImportError:
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib import font_manager as fm
+        CHART_LIBRARY = "matplotlib"
+    except ImportError:
+        CHART_LIBRARY = "none"
+        st.warning("⚠️ 图表库未安装，将使用文本统计")
+
 import streamlit as st
-import matplotlib.pyplot as plt
-from matplotlib import font_manager as fm
 
 
 # ========= 基础配置 =========
@@ -304,26 +337,68 @@ def compare_two_results(
     ])
     summary_df = pd.concat([summary_df, extra_rows], ignore_index=True)
 
-    # 画图（柱状图 G/S/B）
-    ensure_cjk_font()
-    # 图表：问答提取展示 SG/SB 细分；其他类型展示 G/S/B
-    fig, ax = plt.subplots(figsize=(6, 3))
-    if processing_type == "问答提取":
-        detailed_counts = detail_df["标记"].value_counts(dropna=False)
-        cats = ["G", "SG", "S", "SB", "B"]
-        values = [int(detailed_counts.get(c, 0)) for c in cats]
-        colors = ["#4CAF50", "#81C784", "#2196F3", "#FFB74D", "#F44336"]
-        ax.bar(cats, values, color=colors)
-        ax.set_title("G/SG/S/SB/B 数量分布")
-    else:
-        ax.bar(["G", "S", "B"], [counts.get("G", 0), counts.get("S", 0), counts.get("B", 0)], color=["#4CAF50", "#2196F3", "#F44336"]) 
-        ax.set_title("G/S/B 数量分布")
-    ax.set_ylabel("数量")
+    # 生成图表
     buf = io.BytesIO()
-    plt.tight_layout()
-    fig.savefig(buf, format="png", dpi=200)
-    plt.close(fig)
-    buf.seek(0)
+    
+    if CHART_LIBRARY == "plotly":
+        # 使用Plotly生成图表
+        if processing_type == "问答提取":
+            detailed_counts = detail_df["标记"].value_counts(dropna=False)
+            cats = ["G", "SG", "S", "SB", "B"]
+            values = [int(detailed_counts.get(c, 0)) for c in cats]
+            colors = ["#4CAF50", "#81C784", "#2196F3", "#FFB74D", "#F44336"]
+            
+            fig = go.Figure(data=[
+                go.Bar(x=cats, y=values, marker_color=colors)
+            ])
+            fig.update_layout(
+                title="G/SG/S/SB/B 数量分布",
+                xaxis_title="类别",
+                yaxis_title="数量",
+                height=400
+            )
+        else:
+            fig = go.Figure(data=[
+                go.Bar(x=["G", "S", "B"], 
+                      y=[counts.get("G", 0), counts.get("S", 0), counts.get("B", 0)],
+                      marker_color=["#4CAF50", "#2196F3", "#F44336"])
+            ])
+            fig.update_layout(
+                title="G/S/B 数量分布",
+                xaxis_title="类别",
+                yaxis_title="数量",
+                height=400
+            )
+        
+        # 保存为PNG
+        fig.write_image(buf, format="png", width=600, height=400)
+        
+    elif CHART_LIBRARY == "matplotlib":
+        # 使用Matplotlib生成图表
+        ensure_cjk_font()
+        fig, ax = plt.subplots(figsize=(6, 3))
+        if processing_type == "问答提取":
+            detailed_counts = detail_df["标记"].value_counts(dropna=False)
+            cats = ["G", "SG", "S", "SB", "B"]
+            values = [int(detailed_counts.get(c, 0)) for c in cats]
+            colors = ["#4CAF50", "#81C784", "#2196F3", "#FFB74D", "#F44336"]
+            ax.bar(cats, values, color=colors)
+            ax.set_title("G/SG/S/SB/B 数量分布")
+        else:
+            ax.bar(["G", "S", "B"], [counts.get("G", 0), counts.get("S", 0), counts.get("B", 0)], color=["#4CAF50", "#2196F3", "#F44336"]) 
+            ax.set_title("G/S/B 数量分布")
+        ax.set_ylabel("数量")
+        plt.tight_layout()
+        fig.savefig(buf, format="png", dpi=200)
+        plt.close(fig)
+        
+    else:
+        # 无图表库，生成文本统计
+        st.warning("图表库不可用，显示文本统计")
+        buf = None
+    
+    if buf:
+        buf.seek(0)
 
     # ============== 新增：列级统计（第2列..倒数第2列） ==============
     def compute_column_stats(df_a: pd.DataFrame, df_b: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -533,16 +608,19 @@ def main_page():
         st.markdown("**汇总统计**")
         st.dataframe(summary_df)
 
-        # 图表
-        chart_caption = "G/SG/S/SB/B 数量分布" if type_name == "问答提取" else "G/S/B 数量分布"
-        st.markdown("**分布图**" if type_name == "问答提取" else "**G/S/B 分布图**")
-        st.image(chart_png, caption=chart_caption, use_container_width=False)
-        st.download_button(
-            label="下载统计图（PNG）",
-            data=chart_png,
-            file_name="对比统计图.png",
-            mime="image/png",
-        )
+        # 图表显示
+        if chart_png:
+            chart_caption = "G/SG/S/SB/B 数量分布" if type_name == "问答提取" else "G/S/B 数量分布"
+            st.markdown("**分布图**" if type_name == "问答提取" else "**G/S/B 分布图**")
+            st.image(chart_png, caption=chart_caption, use_container_width=False)
+            st.download_button(
+                label="下载统计图（PNG）",
+                data=chart_png,
+                file_name="对比统计图.png",
+                mime="image/png",
+            )
+        else:
+            st.warning("图表生成失败，请检查依赖包安装状态")
 
         # 列级统计结果展示（均值 & 阈值计数）
         st.markdown("**列级均值统计（第2列至倒数第2列）**")
