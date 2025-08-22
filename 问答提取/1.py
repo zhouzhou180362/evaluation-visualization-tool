@@ -5,8 +5,7 @@ import ast
 import re
 from typing import Dict, Optional, List
 
-# 导入本地依赖模块
-from deps import pd, np, openpyxl, PANDAS_AVAILABLE, NUMPY_AVAILABLE, OPENPYXL_AVAILABLE
+import pandas as pd
 
 # =========================
 # 通用配置（按你的新评分结构）
