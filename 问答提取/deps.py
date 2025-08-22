@@ -80,6 +80,28 @@ try:
 except ImportError:
     OPENPYXL_AVAILABLE = False
     print("⚠️ openpyxl未安装，Excel功能受限")
+    
+    # 创建openpyxl备用对象
+    class SimpleWorkbook:
+        def __init__(self):
+            self.active = SimpleWorksheet()
+            
+    class SimpleWorksheet:
+        def __init__(self):
+            self.cells = {}
+            
+        def cell(self, row, column, value=None):
+            if value is not None:
+                self.cells[(row, column)] = value
+            return SimpleCell()
+            
+    class SimpleCell:
+        def __init__(self):
+            pass
+            
+    openpyxl = type('openpyxl', (), {
+        'Workbook': SimpleWorkbook
+    })()
 
 # 导出所有模块
 __all__ = ['pd', 'np', 'openpyxl', 'PANDAS_AVAILABLE', 'NUMPY_AVAILABLE', 'OPENPYXL_AVAILABLE']

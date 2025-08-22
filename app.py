@@ -49,7 +49,7 @@ import streamlit as st
 WORKSPACE_ROOT = os.path.abspath(os.path.dirname(__file__))
 
 PROCESSING_TYPES: Dict[str, str] = {
-    "问答提取": os.path.join(WORKSPACE_ROOT, "问答提取", "1.py"),
+    "问答提取": os.path.join(WORKSPACE_ROOT, "问答提取", "1_fixed.py"),
     "翻译提取": os.path.join(WORKSPACE_ROOT, "翻译提取", "1.py"),
     "解释代码提取": os.path.join(WORKSPACE_ROOT, "解释代码提取", "1.py"),
     "命令相关提取": os.path.join(WORKSPACE_ROOT, "命令相关提取", "1.py"),
@@ -118,14 +118,35 @@ def run_script_with_temp_cwd(script_path: str, input_xlsx_path: str, run_dir: st
     deps_file = os.path.join(script_dir, "deps.py")
     if os.path.exists(deps_file):
         shutil.copy2(deps_file, run_dir)
+        print(f"已复制依赖文件: {deps_file} -> {run_dir}")
 
     env = os.environ.copy()
     # 设置Python路径，确保能找到依赖包
     env["PYTHONPATH"] = f"{WORKSPACE_ROOT}:{run_dir}"
     
+    # 确保脚本能找到依赖文件
+    script_content = ""
+    try:
+        with open(script_path, 'r', encoding='utf-8') as f:
+            script_content = f.read()
+    except Exception as e:
+        print(f"读取脚本失败: {e}")
+        return None, f"读取脚本失败: {e}"
+    
+    # 修改脚本内容，使用绝对路径导入
+    modified_script = script_content.replace(
+        "from deps import",
+        f"import sys\nsys.path.append('{run_dir}')\nfrom deps import"
+    )
+    
+    # 保存修改后的脚本到运行目录
+    modified_script_path = os.path.join(run_dir, "modified_script.py")
+    with open(modified_script_path, 'w', encoding='utf-8') as f:
+        f.write(modified_script)
+    
     python_exec = env.get("PYTHON_EXECUTABLE", None) or "python3"
     completed = subprocess.run(
-        [python_exec, script_path],
+        [python_exec, "modified_script.py"],
         cwd=run_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
